@@ -1,0 +1,132 @@
+#
+# Create objects in your Openshift Cluster like so:
+# oc create -f simplewebserver-from-image-jenkins-inline-pipeline.yaml 
+# oc replace -f simplewebserver-from-image-jenkins-inline-pipeline.yaml 
+# (replace might throw errors regarding clusterIP - comment out the service - object definition)   
+#
+
+---
+apiVersion: v1
+kind: BuildConfig
+metadata:
+  creationTimestamp: null
+  name: simplewebserver
+  labels:
+    application: simplewebserver
+    stage: development
+spec:
+  runPolicy: Serial
+  source:
+    type: None
+  strategy:
+    jenkinsPipelineStrategy:
+      env:
+      - name: "IMAGE_SOURCE"
+        value: "docker.io/gabiburkel/simplewebserver"
+      - name: "IMAGE_TAG"
+        value: "latest"
+      - name: "APP_NAME"
+        value: "simplewebserver"
+      jenkinsfile: |-
+        pipeline {
+          agent any
+          stages {
+            stage('Deploy simplewebserver') {
+              steps {
+                script {
+                  openshift.withCluster() {
+                    openshift.withProject() {
+                      openshift.patch("dc/${APP_NAME}", "'{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"${APP_NAME}\", \"image\": \"${IMAGE_SOURCE}:${IMAGE_TAG}\"}]}}}}'")
+                      openshift.selector("dc", "simplewebserver").rollout().latest();
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+  triggers:
+  - github:
+      secret: ${GITHUB_WEBHOOK_SECRET}
+    type: GitHub
+  - generic:
+      secret: ${GENERIC_WEBHOOK_SECRET}
+    type: Generic
+    type: JenkinsPipeline
+---
+apiVersion: v1
+kind: DeploymentConfig
+metadata:
+  annotations:
+    description: Defines how to deploy the application
+  name: simplewebserver
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    name: simplewebserver
+  strategy:
+    type: Rolling
+  template:
+    metadata:
+      labels:
+        name: simplewebserver
+      name: simplewebserver
+    spec:
+      containers:
+      - image: docker.io/gabiburkel/simplewebserver:latest
+        imagePullPolicy: Always
+        name: simplewebserver
+        env:
+          - name: CUSTOM_PORT
+            value: "9000"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /index.html
+            port: 9000
+          initialDelaySeconds: 3
+          timeoutSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /index.html
+            port: 9000
+          initialDelaySeconds: 3
+          timeoutSeconds: 3
+  triggers: []
+---
+apiVersion: v1
+kind: Route
+metadata:
+  labels:
+    app: simplewebserver
+  name: simplewebserver
+spec:
+  to:
+    kind: Service
+    name: simplewebserver
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: simplewebserver
+  name: simplewebserver
+spec:
+  clusterIP: None
+  ports:
+  - name: web
+    port: 9000
+    targetPort: 9000
+  selector:
+    name: simplewebserver
