@@ -1,8 +1,7 @@
 #
 # Create objects in your Openshift Cluster like so:
-# oc create -f simplewebserver-from-image-jenkins-inline-pipeline.yaml 
-# oc replace -f simplewebserver-from-image-jenkins-inline-pipeline.yaml 
-# (replace might throw errors regarding clusterIP - comment out the service - object definition)   
+# oc create -f simplewebserver.yaml
+#
 #
 
 ---
@@ -88,6 +87,9 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+        volumeMounts:
+          - mountPath: /mnt
+            name: simplewebserver-data
         ports:
         - containerPort: 9000
           protocol: TCP
@@ -103,6 +105,14 @@ spec:
             port: 9000
           initialDelaySeconds: 3
           timeoutSeconds: 3
+      securityContext:
+        # runAsUser: 2010
+        # runAsGroup: 2010
+        # fsGroup: 2010
+      volumes:
+      - persistentVolumeClaim:
+          claimName: simplewebserver-pvc
+        name: simplewebserver-data
   triggers: []
 ---
 apiVersion: v1
